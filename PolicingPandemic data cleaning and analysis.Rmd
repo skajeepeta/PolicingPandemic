@@ -5,26 +5,861 @@ date: "9/17/2020"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+#Reading in basic packages
+```{r}
+library(devtools)
+library(tidyverse)
+library(readr)
+library(nlme)
 ```
 
-## R Markdown
+#Read in 'public health and miscellaneous arrest' data
+Data include arrests with the following offense descriptions: DISORDERLY CONDUCT, CRIMINAL MISCHIEF & RELATED OF, CRIMINAL TRESPASS, MISCELLANEOUS PENAL LAW, OFFENSES AGAINST PUBLIC ADMINI, OFF. AGNST PUB ORD SENSBLTY &, OFFENSES AGAINST THE PERSON, OTHER STATE LAWS (NON PENAL LA
+```{r}
+#Read in 2020 data
+arrests1 <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Arrests of interest/NYPD_Arrest_Data__Year_to_Date_July.csv")
+arrests1$ARREST_DATE <- as.Date(arrests1$ARREST_DATE, "%m/%d/%Y")
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+#Read in historical data (pre-2020)
+arrests2 <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Arrests of interest/NYPD_Arrests_Data__Historic.csv")
+arrests2$ARREST_DATE <- as.Date(arrests2$ARREST_DATE, "%m/%d/%y")
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+#Append both data sets together
+arrests <- rbind(arrests1, arrests2)
 ```
 
-## Including Plots
+#Read in total arrest data to assess changes over time
+```{r}
+#Read in 2020 data
+totarrests1 <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/All arrests/Total Arrests_Year_to_Date_July.csv")
 
-You can also embed plots, for example:
+#Read in historical data (pre-2020)
+totarrests2 <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/All arrests/Total Arrests_Historic.csv")
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+#Append both data sets together
+totarrests <- rbind(totarrests1, totarrests2)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+#Restrict "OTHER STATE LAWS (NON PENAL LA" offense category to only those related to public health law
+```{r}
+oth <- arrests %>% filter(OFNS_DESC == "OTHER STATE LAWS (NON PENAL LA")
+oth <- oth %>% filter(PD_DESC == "PUBLIC HEALTH LAW,UNCLASSIFIED")
+
+arrests <- arrests %>% filter(OFNS_DESC != "OTHER STATE LAWS (NON PENAL LA")
+arrests <- rbind(arrests, oth)
+```
+
+#Data coding for date of lockdown
+```{r}
+## Date NYC declared state of emergency
+dateCovid <- as.Date("2020-03-12")
+```
+
+#Restricting to study period of interest
+```{r}
+arrests <- arrests %>% filter(ARREST_DATE < '2020-05-25')
+arrests <- arrests %>% filter(ARREST_DATE > '2018-12-31')
+```
+
+#Setting up data for interrupted time series analysis
+```{r}
+#Getting a count of arrests per day
+arrest_tally <- arrests %>% group_by(ARREST_DATE) %>% tally()
+
+#Indicator for post-lockdown dates
+arrests$postCovid <- (arrests$ARREST_DATE >= dateCovid)
+arrest_tally$postCovid <- (arrest_tally$ARREST_DATE >= dateCovid)
+
+#Date as numeric
+arrest_tally$DateNum <- as.numeric(arrest_tally$ARREST_DATE)
+
+#Center the date at date of lockdown
+arrest_tally$DateNumCtr <- arrest_tally$DateNum - as.numeric(dateCovid)
+
+#Do the same cleaning for total arrests
+totarrests$ARREST_DATE <- as.Date(totarrests$ARREST_DATE, "%m/%d/%Y")
+totarrests <- totarrests %>% filter(ARREST_DATE < '2020-05-25')
+totarrest_tally <- totarrests %>% group_by(ARREST_DATE) %>% tally()
+totarrest_tally$postCovid <- (totarrest_tally$ARREST_DATE >= dateCovid)
+totarrest_tally$DateNum <- as.numeric(totarrest_tally$ARREST_DATE)
+totarrest_tally$DateNumCtr <- totarrest_tally$DateNum - as.numeric(dateCovid)
+```
+
+
+#Interrupted Time Series Analysis to assess change in arrests of interest as proportion of total arrests
+```{r}
+#Combine dataframes
+plot <- left_join(totarrest_tally, arrest_tally, by=c("ARREST_DATE", "postCovid", "DateNum","DateNumCtr"))
+#Calculate arrests of interest as proportion of total arrests
+plot$proportion <- plot$n.y/plot$n.x
+
+#Fit ITS model
+glsFit5 <- gls(model       = proportion ~ DateNumCtr + postCovid + DateNumCtr:postCovid,
+               data        = plot)
+summary(glsFit5)
+
+#Plot model predicted lines over raw data
+## Create prediction dataset
+newdata <- data.frame(DateNumCtr = seq(min(plot$DateNumCtr), max(plot$DateNumCtr), by  = 1))
+newdata$postCovid <- (newdata$DateNumCtr >= 0)
+
+## Predict
+newdata$proportion <- predict(glsFit5, newdata = newdata)
+
+#Join dates back
+temp <- plot %>% select(DateNumCtr, ARREST_DATE)
+newdata <- left_join(newdata, temp, by="DateNumCtr")
+
+ggplot(data = plot, mapping = aes(x = ARREST_DATE, y = proportion, group=1)) +
+    geom_line() +
+    geom_line(data = subset(newdata, DateNumCtr < 0), color = "red", size = 1.5) +
+    geom_line(data = subset(newdata, DateNumCtr >= 0), color = "red", size = 1.5) +
+    geom_vline(xintercept=as.numeric(as.Date("2020-03-12")), linetype=2) +
+   theme_bw() + theme(legend.key = element_blank()) +
+  ylab("Arrests of interest as proportion of total arrests") +
+  xlab(" ") +
+  scale_x_date(date_breaks = "2 months", date_labels = "%b %y") 
+```
+
+#INDIVIDUAL-LEVEL DIFF IN DIFF POISSON REGRESSION
+```{r}
+#get daily counts by race
+daily <- arrests %>% group_by(ARREST_DATE, postCovid, PERP_RACE) %>% tally()
+dailys <- summons %>% group_by(ARREST_DATE, postCovid, PERP_RACE) %>% tally()
+dailys$summons <- dailys$n
+dailys$n <- NULL
+
+#Join arrests and summonses
+daily <- daily %>% left_join(dailys, by=c("ARREST_DATE","postCovid", "PERP_RACE"))
+
+#filter to Black, Black Hispanic, White
+daily <- daily %>% filter(PERP_RACE %in% c("BLACK","BLACK HISPANIC","WHITE"))
+
+#Create new race var to combine Black and Black Hispanic
+daily$black <- ifelse(daily$PERP_RACE %in% c("BLACK","BLACK HISPANIC"), 1, 0)
+
+daily <- daily %>% group_by(ARREST_DATE, postCovid, black) %>% summarise(arrestcount = sum(n), summonscount=sum(summons))
+```
+
+#Create a list of all days
+##This way I can add 0 values for the days with no arrests
+```{r}
+black <- c("1", "0")
+alldates <- seq(as.Date("2019-01-01"), as.Date("2020-05-24"), "day")
+days <- data.frame(expand.grid(black, alldates))
+days$black <- as.character(days$Var1)
+days$Var1 <- NULL
+days$ARREST_DATE <- as.Date(days$Var2)
+days$Var2 <- NULL
+```
+
+#Join daily dataset
+```{r}
+daily$black <- as.character(daily$black)
+daily <- left_join(days, daily, by=c("black","ARREST_DATE"))
+
+#Replace missing with 0
+daily$arrestcount <- ifelse(is.na(daily$arrestcount), 0, daily$arrestcount)
+daily$summonscount <- ifelse(is.na(daily$summonscount), 0, daily$summonscount)
+
+## Indicator for post-lockdown dates
+daily$postCovid <- (daily$ARREST_DATE >= dateCovid)
+
+#Add denom var for offset
+daily$denom <- ifelse(daily$black ==1, 2190875, 2713930)
+#denominator from Census: https://www.census.gov/quickfacts/newyorkcitynewyork
+
+#Restrict to 2019 and later
+daily <- daily %>% filter(ARREST_DATE > '2018-12-31')
+
+#recode postCovid var
+daily$preCovid <- (daily$ARREST_DATE < dateCovid)
+```
+
+#Run Poisson regression
+```{r}
+m1 <- glm(formula = arrestcount ~ postCovid + black + postCovid:black + offset(log(denom)), family=quasipoisson, data=daily)
+summary(m1)
+```
+
+#View exponeniated coefficiants and 95% CI
+```{r}
+exp(m1$coefficients["postCovidTRUE"])
+exp(m1$coefficients["black1"])
+exp(m1$coefficients["postCovidTRUE:black1"])
+exp(m1$coefficients["black1"])*exp(m1$coefficients["postCovidTRUE:black1"])
+exp(confint(m1))
+```
+
+#NEIGHBORHOOD ANALYSIS
+
+#Get daily arrest counts for each ZCTA (zip)
+```{r}
+library(sf)
+arrests_sf <- arrests %>%
+  mutate_at(vars(X_COORD_CD, Y_COORD_CD), as.numeric) %>%   # coordinates must be numeric
+  st_as_sf(
+    coords = c("X_COORD_CD", "Y_COORD_CD"),
+    agr = "constant",
+    crs = 2263,       
+    stringsAsFactors = FALSE,
+    remove = TRUE)
+
+zcta_sf <- read_sf("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Shapefiles/ZCTAs/nyu_2451_34509.shp") %>%
+  st_transform(2263) #read shapefile
+
+arrests_in_zcta <- st_join(arrests_sf, zcta_sf) #join both
+
+arrests_zcta_count <- arrests_in_zcta %>% #assign points to nta polygons
+  group_by(ARREST_DATE) %>%
+  count(zcta)
+
+colnames(arrests_zcta_count)[colnames(arrests_zcta_count)=="n"] <- "n_arrests" #assign new name 
+
+arrests_zcta_count$geometry <- NULL
+#now I have daily counts per ZCTA
+```
+
+#Create a list of all zips and all days
+##This way I can add 0 values for the zips and days with no arrests
+```{r}
+allzctas <- unique(arrests_zcta_count$zcta)
+alldates <- seq(as.Date("2015-01-01"), as.Date("2020-05-24"), "day")
+zipdays <- data.frame(expand.grid(allzctas, alldates))
+zipdays$zcta <- as.character(zipdays$Var1)
+zipdays$Var1 <- NULL
+zipdays$ARREST_DATE <- as.Date(zipdays$Var2)
+zipdays$Var2 <- NULL
+```
+
+#Join full list of zip days to dataset
+```{r}
+arrests_zcta_count <- arrests_zcta_count %>% full_join(zipdays, by=c("ARREST_DATE", "zcta"))
+
+#Replace all missing with zero
+arrests_zcta_count$n_arrests <- ifelse(is.na(arrests_zcta_count$n_arrests), 0, arrests_zcta_count$n_arrests)
+```
+
+#pull in zip racial and socioeconomic demographics
+```{r}
+#Read in zip-level demographic data
+zip <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Neighborhood demographics/ZCTA/ZCTA_ACS_2018.csv")
+
+#delete first row
+zip <- zip[-1,]
+
+#Select columns of interest
+zip <- zip %>% select(c("ZIP Code Tabulation Area (5-digit)", "Total Population","% Total Population: Black or African American Alone", "% Population Age 18 to 64 for Whom Poverty Status  Is Determined: Living in Poverty"))
+
+names(zip) <- c("zcta","pop_estimate","black","poverty")
+
+#2010 demographic data for sensitivity analysis
+zip2010 <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Neighborhood demographics/ZCTA/zipLevelAsthma.csv")
+zip2010$zcta <- as.character(zip2010$ZCTA)
+zip2010$black_2010 <- zip2010$black*100
+zip2010$poverty_2010 <- zip2010$poverty*100
+zip2010 <- zip2010 %>% select(c(zcta, black_2010, poverty_2010))
+
+zip <- zip %>% left_join(zip2010, by="zcta")
+
+#read in total zip population data
+zippop <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Neighborhood demographics/ZCTA/Pop totals.csv")
+
+#delete first row
+zippop <- zippop[-1,]
+
+#zip is last 5 digits of GEO_ID
+library(stringr)
+zippop$GEO_ID <- str_sub(zippop$GEO_ID, start= -5)
+zippop$zcta <- as.character(zippop$GEO_ID)
+zippop$pop_estimate_2010 <- as.numeric(zippop$P001001)
+
+#join together
+zip <- zip %>% left_join(zippop, by="zcta")
+
+#pull in borough
+zipboro <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Neighborhood demographics/ZCTA/zip_boro.csv")
+zipboro$zcta <- as.character(zipboro$zcta)
+zipboro <- distinct(zipboro)
+
+zip <- zip %>% left_join(zipboro, by="zcta")
+
+```
+
+#Join demographic data with arrest data
+```{r}
+#Join with arrest counts
+arrests_zcta_count <- arrests_zcta_count %>% left_join(zip, by="zcta")
+
+#Restrict to 2019 and later
+arrests_zcta_count <- arrests_zcta_count %>% filter(ARREST_DATE > '2018-12-31')
+
+#Record demographics to numeric and drop any zips with boro=0 (not really in NYC)
+arrests_zcta_count$pop_estimate <- as.numeric(arrests_zcta_count$pop_estimate)
+arrests_zcta_count$black <- as.numeric(arrests_zcta_count$black)
+arrests_zcta_count$poverty <- as.numeric(arrests_zcta_count$poverty)
+arrests_zcta_count$pop_estimate_2010 <- as.numeric(arrests_zcta_count$pop_estimate_2010)
+arrests_zcta_count$black_2010 <- as.numeric(arrests_zcta_count$black_2010)
+arrests_zcta_count$poverty_2010 <- as.numeric(arrests_zcta_count$poverty_2010)
+arrests_zcta_count <- arrests_zcta_count %>% filter(!is.na(boro))
+
+#delete unnecessary columns
+arrests_zcta_count$GEO_ID <- NULL
+arrests_zcta_count$NAME <- NULL
+arrests_zcta_count$P001001 <- NULL
+
+#drop any zips with pop < 200
+arrests_zcta_count <- arrests_zcta_count %>% filter(pop_estimate > 200)
+```
+
+#Standardize % black
+```{r}
+mean(arrests_zcta_count$black, na.rm=TRUE)
+sd(arrests_zcta_count$black, na.rm=TRUE)
+arrests_zcta_count$blackz <- (arrests_zcta_count$black-mean(arrests_zcta_count$black, na.rm=TRUE))/sd(arrests_zcta_count$black, na.rm=TRUE)
+```
+
+#Standardize % black for sensitivity analysis (2010)
+```{r}
+mean(arrests_zcta_count$black_2010, na.rm=TRUE)
+sd(arrests_zcta_count$black_2010, na.rm=TRUE)
+arrests_zcta_count$blackz_2010 <- (arrests_zcta_count$black_2010-mean(arrests_zcta_count$black_2010, na.rm=TRUE))/sd(arrests_zcta_count$black_2010, na.rm=TRUE)
+```
+
+#Run Poisson regression - by percent_black (standardized) with boro FE
+```{r}
+arrests_zcta_count$postCovid <- (arrests_zcta_count$ARREST_DATE >= dateCovid)
+
+m2 <- glm(formula = n_arrests ~ postCovid + blackz + postCovid:blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_zcta_count)
+summary(m2)
+```
+
+#View exponeniated coefficiants and 95% CI
+```{r}
+exp(m2$coefficients["postCovidTRUE"])
+exp(m2$coefficients["blackz"])
+exp(m2$coefficients["postCovidTRUE:blackz"])
+exp(m2$coefficients["blackz"])*exp(m2$coefficients["postCovidTRUE:blackz"])
+exp(confint(m2))
+```
+
+##2010 sensitivity analysis
+###Run Poisson regression - by percent_black (standardized) with boro FE
+```{r}
+m3 <- glm(formula = n_arrests ~ postCovid + blackz_2010 + postCovid:blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_zcta_count)
+summary(m3)
+```
+
+#View exponeniated coefficiants and 95% CI
+```{r}
+exp(m3$coefficients["postCovidTRUE"])
+exp(m3$coefficients["blackz_2010"])
+exp(m3$coefficients["postCovidTRUE:blackz_2010"])
+exp(m3$coefficients["blackz_2010"])*exp(m3$coefficients["postCovidTRUE:blackz_2010"])
+exp(confint(m3))
+```
+
+#Standardize % poverty
+```{r}
+mean(arrests_zcta_count$poverty, na.rm=TRUE)
+sd(arrests_zcta_count$poverty, na.rm=TRUE)
+arrests_zcta_count$povertyz <- (arrests_zcta_count$poverty-mean(arrests_zcta_count$poverty, na.rm=TRUE))/sd(arrests_zcta_count$poverty, na.rm=TRUE)
+```
+
+#Standardize % poverty for 2010 sensitivity analysis
+```{r}
+mean(arrests_zcta_count$poverty_2010, na.rm=TRUE)
+sd(arrests_zcta_count$poverty_2010, na.rm=TRUE)
+arrests_zcta_count$povertyz_2010 <- (arrests_zcta_count$poverty_2010-mean(arrests_zcta_count$poverty_2010, na.rm=TRUE))/sd(arrests_zcta_count$poverty_2010, na.rm=TRUE)
+```
+
+#Run Poisson regression - by percent below NYC poverty (standardized) with BORO
+```{r}
+m4 <- glm(formula = n_arrests ~ postCovid + povertyz + postCovid:povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_zcta_count)
+summary(m4)
+```
+
+#View exponeniated coefficiants and 95% CI
+```{r}
+exp(m4$coefficients["postCovidTRUE"])
+exp(m4$coefficients["povertyz"])
+exp(m4$coefficients["postCovidTRUE:povertyz"])
+exp(m4$coefficients["povertyz"])*exp(m4$coefficients["postCovidTRUE:povertyz"])
+exp(confint(m4))
+```
+
+##2010 Sensitivity analysis
+###Run Poisson regression - by percent below NYC poverty (standardized) with BORO
+```{r}
+m5 <- glm(formula = n_arrests ~ postCovid + povertyz_2010 + postCovid:povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_zcta_count)
+summary(m5)
+```
+
+#View exponeniated coefficiants and 95% CI
+```{r}
+exp(m5$coefficients["postCovidTRUE"])
+exp(m5$coefficients["povertyz_2010"])
+exp(m5$coefficients["postCovidTRUE:povertyz_2010"])
+exp(m5$coefficients["povertyz_2010"])*exp(m5$coefficients["postCovidTRUE:povertyz_2010"])
+exp(confint(m5))
+```
+
+#Restrict dataset to post-COVID lockdown period only and aggregate total arrests across dates
+```{r}
+post_arrests_zcta_count <- arrests_zcta_count %>% filter(postCovid==T)
+post_arrests_zcta_count <- post_arrests_zcta_count %>% select(zcta, n_arrests, pop_estimate, black, blackz, poverty, povertyz, boro, pop_estimate_2010, blackz_2010, povertyz_2010)
+post_arrests_zcta_count <- post_arrests_zcta_count %>% group_by(zcta, pop_estimate, black, blackz, poverty, povertyz, boro, pop_estimate_2010, blackz_2010, povertyz_2010) %>% summarise(arrests = sum(n_arrests))
+```
+
+#Pull in median non-home dwell time by zip
+```{r}
+socialDistancing <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Social distancing covariates/socialDistancing2.csv") #read social distancing data
+
+socialDistancing <- select(socialDistancing, zcta, weighted_median_non_home_dwell_time)
+socialDistancing$zcta <- as.character(socialDistancing$zcta)
+
+arrests_SD <- post_arrests_zcta_count %>% select(c(zcta, pop_estimate, black, blackz, poverty, povertyz, boro, arrests, pop_estimate_2010, blackz_2010, povertyz_2010))
+arrests_SD$geometry <- NULL
+
+arrests_SD <- left_join(arrests_SD, socialDistancing, by=c("zcta"))
+
+#standardize median non-home dwell time
+arrests_SD$weighted_median_non_home_dwell_timez <- (arrests_SD$weighted_median_non_home_dwell_time - mean(arrests_SD$weighted_median_non_home_dwell_time, na.rm=TRUE))/sd(arrests_SD$weighted_median_non_home_dwell_time, na.rm=TRUE)
+```
+
+#Pull in 311 social distancing complaint data
+```{r}
+df311 <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Social distancing covariates/df311.csv")
+
+# pull out all PH related offences in description and create ZCTA counts
+df311$Descriptor <- as.factor(df311$Descriptor)
+#levels(df311$Descriptor)
+sd311 <- filter(df311, grepl("Social Distancing", Descriptor, ignore.case = TRUE))
+sd311$date <- sd311$'Created Date'
+sd311$date <- as.Date(sd311$date, format = "%m/%d/%Y")
+sd311$zcta <- sd311$'Incident Zip'
+
+#Restrict to study period 3/12-5/24
+sd311 <- sd311 %>% filter(date < '2020-05-25')
+
+sd311_dayZip <- sd311 %>% 
+  group_by(date, zcta) %>% 
+  tally()%>%
+  rename(n_complaintsSD = n)%>%
+  ungroup()
+
+sd311_dayZip$zcta <- as.character(sd311_dayZip$zcta)
+
+#get total complaints in post-lockdown period
+sd311_Zip <- sd311_dayZip %>% group_by(zcta) %>% summarise(complaintsSD = sum(n_complaintsSD))
+
+arrests_SD <- left_join(arrests_SD, sd311_Zip, by=c("zcta"))
+
+#replace missing with 0
+arrests_SD$complaintsSD <- ifelse(is.na(arrests_SD$complaintsSD), 0, arrests_SD$complaintsSD)
+
+#convert number of complaints to a rate
+arrests_SD$complaintsSD_rate <- arrests_SD$complaintsSD/arrests_SD$pop_estimate*100000
+arrests_SD$pop_estimate_2010 <- ifelse(arrests_SD$pop_estimate_2010==0, NA, arrests_SD$pop_estimate_2010)
+arrests_SD$complaintsSD_rate_2010 <- arrests_SD$complaintsSD/arrests_SD$pop_estimate_2010
+
+#standardize
+arrests_SD$complaintsSD_ratez <- (arrests_SD$complaintsSD_rate - mean(arrests_SD$complaintsSD_rate, na.rm=TRUE))/sd(arrests_SD$complaintsSD_rate, na.rm=TRUE)
+arrests_SD$complaintsSD_ratez_2010 <- (arrests_SD$complaintsSD_rate_2010 - mean(arrests_SD$complaintsSD_rate_2010, na.rm=TRUE))/sd(arrests_SD$complaintsSD_rate_2010, na.rm=TRUE)
+```
+
+#Read in criminal summons data
+```{r}
+summons <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Summonses/NYPD_Criminal_Court_Summons_Incident_Level_Data__Year_To_Date_.csv")
+
+summons$date <- as.Date(summons$SUMMONS_DATE, format = "%m/%d/%Y")
+
+summons_sf <- summons %>%
+  mutate_at(vars(X_COORDINATE_CD, Y_COORDINATE_CD), as.numeric) %>%   # coordinates must be numeric
+  st_as_sf(
+    coords = c("X_COORDINATE_CD", "Y_COORDINATE_CD"),
+    agr = "constant",
+    crs = 2263,        
+    stringsAsFactors = FALSE,
+    remove = TRUE)
+
+zcta_sf <- read_sf("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Shapefiles/ZCTAs/nyu_2451_34509.shp") %>%
+  st_transform(2263) #read shapefile
+
+summons_in_zcta <- st_join(summons_sf, zcta_sf) #join both
+
+summons_zcta_count <- summons_in_zcta %>% #assign points to nta polygons
+  group_by(date) %>%
+  count(zcta)
+
+colnames(summons_zcta_count)[colnames(summons_zcta_count)=="n"] <- "n_summons" #assign new name
+
+summons_zcta_count$geometry <- NULL
+
+#get total complaints in post-lockdown period
+summons_zip <- summons_zcta_count %>% group_by(zcta) %>% summarise(summons = sum(n_summons))
+
+arrests_SD <- left_join(arrests_SD, summons_zip, by=c("zcta"))
+
+#replace missing with 0
+arrests_SD$summons <- ifelse(is.na(arrests_SD$summons), 0, arrests_SD$summons)
+```
+
+#Unadjusted associations with boro fixed effects
+##Run Poisson regression - by percent_black (standardized)
+```{r}
+m6 <- glm(formula = arrests ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m6)
+exp(m6$coefficients["blackz"])
+exp(confint(m6))
+```
+
+###2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = arrests ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["blackz_2010"])
+exp(confint(m7))
+```
+
+##Run Poisson regression - by percent_poverty (standardized)
+```{r}
+m8 <- glm(formula = arrests ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m8)
+exp(m8$coefficients["povertyz"])
+exp(confint(m8))
+```
+
+###2010 sensitivity analysis
+```{r}
+m9 <- glm(formula = arrests ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m9)
+exp(m9$coefficients["povertyz_2010"])
+exp(confint(m9))
+```
+
+#Adjusted associations between % black and poverty with arrests
+##Run Poisson regression - by percent_black (standardized)
+```{r}
+m10 <- glm(formula = arrests ~ blackz + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m10)
+exp(m10$coefficients["blackz"])
+exp(confint(m10))
+```
+
+###2010 sensitivity analysis
+```{r}
+m11 <- glm(formula = arrests ~ blackz_2010 + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez_2010 + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m11)
+exp(m11$coefficients["blackz_2010"])
+exp(confint(m11))
+```
+
+##Run Poisson regression - by percent_poverty (standardized)
+```{r}
+m12 <- glm(formula = arrests ~ povertyz + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m12)
+exp(m12$coefficients["povertyz"])
+exp(confint(m12))
+```
+
+###2010 sensitivity analysis
+```{r}
+m13 <- glm(formula = arrests ~ povertyz_2010 + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez_2010 + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m13)
+exp(m13$coefficients["povertyz_2010"])
+exp(confint(m13))
+```
+
+#Crude and adjusted associations with summonses
+##Remove Staten Island because no zips in SI had summonses
+```{r}
+arrests_SD2 <- arrests_SD %>% filter(boro != "Staten")
+```
+
+##Crude
+###Run Poisson regression - by percent_black (standardized)
+```{r}
+m14 <- glm(formula = summons ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m14)
+exp(m14$coefficients["blackz"])
+exp(confint(m14))
+```
+
+####2010 sensitivity analysis
+```{r}
+m15 <- glm(formula = summons ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m15)
+exp(m15$coefficients["blackz_2010"])
+exp(confint(m15))
+```
+
+##Run Poisson regression - by percent_poverty (standardized)
+```{r}
+m16 <- glm(formula = summons ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m16)
+exp(m16$coefficients["povertyz"])
+exp(confint(m16))
+```
+
+####2010 sensitivity
+```{r}
+m17 <- glm(formula = summons ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m17)
+exp(m17$coefficients["povertyz_2010"])
+exp(confint(m17))
+```
+
+##Adjusted
+###Run Poisson regression - by percent_black (standardized)
+```{r}
+m18 <- glm(formula = summons ~ blackz + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m18)
+exp(m18$coefficients["blackz"])
+exp(confint(m18))
+```
+
+###2010 sensitivity analysis
+```{r}
+m19 <- glm(formula = summons ~ blackz_2010 + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez_2010 + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m19)
+exp(m19$coefficients["blackz_2010"])
+exp(confint(m19))
+```
+
+###Run Poisson regression - by percent_poverty (standardized)
+```{r}
+m20 <- glm(formula = summons ~ povertyz + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m20)
+exp(m20$coefficients["povertyz"])
+exp(confint(m20))
+```
+
+####2010 sensitivity analysis
+```{r}
+m21 <- glm(formula = summons ~ povertyz_2010 + boro + weighted_median_non_home_dwell_timez + complaintsSD_ratez_2010 + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m21)
+exp(m21$coefficients["povertyz_2010"])
+exp(confint(m21))
+```
+
+#Read in stop and frisk spatial data
+```{r}
+sqf <- read_csv("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/SQF/2011.csv")
+summary(sqf)
+
+sqf$datestop <- str_sub(sqf$datestop, end=-5)
+sqf$day <- str_sub(sqf$datestop, start=-2)
+sqf$month <- str_sub(sqf$datestop, end=-3)
+sqf$date <- as.Date(ISOdate(sqf$year,sqf$month, sqf$day))
+
+sqf <- sqf %>% filter(!is.na(xcoord) & !is.na(ycoord))
+
+sqf_sf <- sqf %>%
+  mutate_at(vars(xcoord, ycoord), as.numeric) %>%   # coordinates must be numeric
+  st_as_sf(
+    coords = c("xcoord", "ycoord"),
+    agr = "constant",
+    crs = 2263,        
+    stringsAsFactors = FALSE,
+    remove = TRUE)
+
+zcta_sf <- read_sf("/Users/sk4538/Sync/Mass Incarceration and Public Health/COVID and arrests/Data/Shapefiles/ZCTAs/nyu_2451_34509.shp") %>%
+  st_transform(2263) #read shapefile
+
+sqf_in_zip <- st_join(sqf_sf, zcta_sf) #join both
+
+sqf_zip_count <- sqf_in_zip %>% #assign points to nta polygons
+  group_by(date) %>%
+  count(zcta)
+
+colnames(sqf_zip_count)[colnames(sqf_zip_count)=="n"] <- "n_arrests" #assign new name 
+
+sqf_zip_count$geometry <- NULL
+#now I have daily counts per zip
+```
+
+#Sum to get total SQF incidents in 2011 per zip
+```{r}
+sqf_zip_count <- sqf_zip_count %>% left_join(zip, by="zcta") %>% select(zcta, date, n_arrests)
+
+mapsqf <- sqf_zip_count %>% group_by(zcta) %>% summarise(sqf = sum(n_arrests))
+```
+
+#Joining stop and frisk data
+```{r}
+arrests_SD <- arrests_SD %>% left_join(mapsqf, by=c("zcta"))
+
+#convert to rate
+arrests_SD$sqfrate <- arrests_SD$sqf/arrests_SD$pop_estimate_2010*100000
+
+#standardize sqf rate
+arrests_SD$sqfratez <- (arrests_SD$sqfrate - mean(arrests_SD$sqfrate, na.rm=TRUE))/sd(arrests_SD$sqfrate, na.rm=TRUE)
+```
+
+#Individual associations with arrest rate (quasi-Poisson regression)
+##blackz
+```{r}
+m5 <- glm(formula = arrests ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m5)
+exp(m5$coefficients["blackz"])
+exp(confint(m5))
+```
+
+##2010 sensitivity analysis
+```{r}
+m5 <- glm(formula = arrests ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m5)
+exp(m5$coefficients["blackz_2010"])
+exp(confint(m5))
+```
+
+##povertyz
+```{r}
+m7 <- glm(formula = arrests ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["povertyz"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = arrests ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["povertyz_2010"])
+exp(confint(m7))
+```
+
+##weighted_median_non_home_dwell_timez
+```{r}
+m7 <- glm(formula = arrests ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = arrests ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m7))
+```
+
+##311 complaints
+```{r}
+m7 <- glm(formula = arrests ~ complaintsSD_ratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["complaintsSD_ratez"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = arrests ~ complaintsSD_ratez_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["complaintsSD_ratez_2010"])
+exp(confint(m7))
+```
+
+##2011 SQF arrests
+```{r}
+m7 <- glm(formula = arrests ~ sqfratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["sqfratez"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = arrests ~ sqfratez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m7)
+exp(m7$coefficients["sqfratez"])
+exp(confint(m7))
+```
+
+#Individual associations with summons rate (quasi-Poisson regression)
+##Drop Staten Island
+```{r}
+arrests_SD2 <- arrests_SD %>% filter(boro != "Staten")
+```
+
+##blackz
+```{r}
+m5 <- glm(formula = summons ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m5)
+exp(m5$coefficients["blackz"])
+exp(confint(m5))
+```
+
+##2010 sensitivity analysis
+```{r}
+m5 <- glm(formula = summons ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m5)
+exp(m5$coefficients["blackz_2010"])
+exp(confint(m5))
+```
+
+##povertyz
+```{r}
+m7 <- glm(formula = summons ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["povertyz"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = summons ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["povertyz_2010"])
+exp(confint(m7))
+```
+
+##weighted_median_non_home_dwell_timez
+```{r}
+m7 <- glm(formula = summons ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = summons ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m7))
+```
+
+##311 complaints
+```{r}
+m7 <- glm(formula = summons ~ complaintsSD_ratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["complaintsSD_ratez"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = summons ~ complaintsSD_ratez_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["complaintsSD_ratez_2010"])
+exp(confint(m7))
+```
+
+##2011 SQF arrests
+```{r}
+m7 <- glm(formula = summons ~ sqfratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["sqfratez"])
+exp(confint(m7))
+```
+
+##2010 sensitivity analysis
+```{r}
+m7 <- glm(formula = summons ~ sqfratez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m7)
+exp(m7$coefficients["sqfratez"])
+exp(confint(m7))
+```
