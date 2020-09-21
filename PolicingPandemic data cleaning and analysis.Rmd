@@ -700,82 +700,82 @@ arrests_SD$sqfratez <- (arrests_SD$sqfrate - mean(arrests_SD$sqfrate, na.rm=TRUE
 #Individual associations with arrest rate (quasi-Poisson regression)
 ##blackz
 ```{r}
-m5 <- glm(formula = arrests ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
-summary(m5)
-exp(m5$coefficients["blackz"])
-exp(confint(m5))
+m22 <- glm(formula = arrests ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m22)
+exp(m22$coefficients["blackz"])
+exp(confint(m22))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m5 <- glm(formula = arrests ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
-summary(m5)
-exp(m5$coefficients["blackz_2010"])
-exp(confint(m5))
+m23 <- glm(formula = arrests ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m23)
+exp(m23$coefficients["blackz_2010"])
+exp(confint(m23))
 ```
 
 ##povertyz
 ```{r}
-m7 <- glm(formula = arrests ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["povertyz"])
-exp(confint(m7))
+m24 <- glm(formula = arrests ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m24)
+exp(m24$coefficients["povertyz"])
+exp(confint(m24))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = arrests ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["povertyz_2010"])
-exp(confint(m7))
+m25 <- glm(formula = arrests ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m25)
+exp(m25$coefficients["povertyz_2010"])
+exp(confint(m25))
 ```
 
 ##weighted_median_non_home_dwell_timez
 ```{r}
-m7 <- glm(formula = arrests ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
-exp(confint(m7))
+m26 <- glm(formula = arrests ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m26)
+exp(m26$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m26))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = arrests ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
-exp(confint(m7))
+m27 <- glm(formula = arrests ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m27)
+exp(m27$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m27))
 ```
 
 ##311 complaints
 ```{r}
-m7 <- glm(formula = arrests ~ complaintsSD_ratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["complaintsSD_ratez"])
-exp(confint(m7))
+m28 <- glm(formula = arrests ~ complaintsSD_ratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m28)
+exp(m28$coefficients["complaintsSD_ratez"])
+exp(confint(m28))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = arrests ~ complaintsSD_ratez_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["complaintsSD_ratez_2010"])
-exp(confint(m7))
+m29 <- glm(formula = arrests ~ complaintsSD_ratez_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m29)
+exp(m29$coefficients["complaintsSD_ratez_2010"])
+exp(confint(m29))
 ```
 
 ##2011 SQF arrests
 ```{r}
-m7 <- glm(formula = arrests ~ sqfratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["sqfratez"])
-exp(confint(m7))
+m30 <- glm(formula = arrests ~ sqfratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD)
+summary(m30)
+exp(m30$coefficients["sqfratez"])
+exp(confint(m30))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = arrests ~ sqfratez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
-summary(m7)
-exp(m7$coefficients["sqfratez"])
-exp(confint(m7))
+m31 <- glm(formula = arrests ~ sqfratez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD)
+summary(m31)
+exp(m31$coefficients["sqfratez"])
+exp(confint(m31))
 ```
 
 #Individual associations with summons rate (quasi-Poisson regression)
@@ -786,80 +786,80 @@ arrests_SD2 <- arrests_SD %>% filter(boro != "Staten")
 
 ##blackz
 ```{r}
-m5 <- glm(formula = summons ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
-summary(m5)
-exp(m5$coefficients["blackz"])
-exp(confint(m5))
+m32 <- glm(formula = summons ~ blackz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m32)
+exp(m32$coefficients["blackz"])
+exp(confint(m32))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m5 <- glm(formula = summons ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
-summary(m5)
-exp(m5$coefficients["blackz_2010"])
-exp(confint(m5))
+m33 <- glm(formula = summons ~ blackz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m33)
+exp(m33$coefficients["blackz_2010"])
+exp(confint(m33))
 ```
 
 ##povertyz
 ```{r}
-m7 <- glm(formula = summons ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["povertyz"])
-exp(confint(m7))
+m34 <- glm(formula = summons ~ povertyz + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m34)
+exp(m34$coefficients["povertyz"])
+exp(confint(m34))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = summons ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["povertyz_2010"])
-exp(confint(m7))
+m35 <- glm(formula = summons ~ povertyz_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m35)
+exp(m35$coefficients["povertyz_2010"])
+exp(confint(m35))
 ```
 
 ##weighted_median_non_home_dwell_timez
 ```{r}
-m7 <- glm(formula = summons ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
-exp(confint(m7))
+m36 <- glm(formula = summons ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m36)
+exp(m36$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m36))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = summons ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["weighted_median_non_home_dwell_timez"])
-exp(confint(m7))
+m37 <- glm(formula = summons ~ weighted_median_non_home_dwell_timez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m37)
+exp(m37$coefficients["weighted_median_non_home_dwell_timez"])
+exp(confint(m37))
 ```
 
 ##311 complaints
 ```{r}
-m7 <- glm(formula = summons ~ complaintsSD_ratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["complaintsSD_ratez"])
-exp(confint(m7))
+m38 <- glm(formula = summons ~ complaintsSD_ratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m38)
+exp(m38$coefficients["complaintsSD_ratez"])
+exp(confint(m38))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = summons ~ complaintsSD_ratez_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["complaintsSD_ratez_2010"])
-exp(confint(m7))
+m39 <- glm(formula = summons ~ complaintsSD_ratez_2010 + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m39)
+exp(m39$coefficients["complaintsSD_ratez_2010"])
+exp(confint(m39))
 ```
 
 ##2011 SQF arrests
 ```{r}
-m7 <- glm(formula = summons ~ sqfratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["sqfratez"])
-exp(confint(m7))
+m40 <- glm(formula = summons ~ sqfratez + boro + offset(log(pop_estimate)), family=quasipoisson, data=arrests_SD2)
+summary(m40)
+exp(m40$coefficients["sqfratez"])
+exp(confint(m40))
 ```
 
 ##2010 sensitivity analysis
 ```{r}
-m7 <- glm(formula = summons ~ sqfratez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
-summary(m7)
-exp(m7$coefficients["sqfratez"])
-exp(confint(m7))
+m41 <- glm(formula = summons ~ sqfratez + boro + offset(log(pop_estimate_2010)), family=quasipoisson, data=arrests_SD2)
+summary(m41)
+exp(m41$coefficients["sqfratez"])
+exp(confint(m41))
 ```
